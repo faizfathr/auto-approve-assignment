@@ -354,9 +354,13 @@ def jalankan(pemulihan=False):
                             timeout=TIMEOUT
                         )
                         konfirmasi_approve.click()
-                        kirim(form)
                         result = "SUCCESS"
                         sheet.cell(number, status, result)
+                        jeda = random.randint(5, 15)
+                        print(
+                            f"  [JEDA] {jeda} detik...",
+                            flush=True
+                        )
                         break
                     except AssertionError:
                         result = "NO_CHANGE"
