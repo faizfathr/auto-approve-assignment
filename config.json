@@ -1,0 +1,10 @@
+{
+  "excel_file": "data-EC.xlsx",
+  "sheet_name": "Sheet1",
+  "delay_min": 1,
+  "delay_max": 2,
+  "batch_min": 20,
+  "batch_max": 30,
+  "rest_min": 0.25,
+  "rest_max": 0.5
+}
