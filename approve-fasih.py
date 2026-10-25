@@ -24,6 +24,8 @@ PESAN_BOT = re.compile(
 SELECTORS = {
     "approve": 'button:visible:has(svg.tabler-icon-check)',
     "konfirmasi_approve": '[role="alertdialog"]:visible:has-text("Approve Assignment?") button:text-is("Konfirmasi")',
+    "revoke": 'button:visible:has(svg.tabler-icon-rotate-clockwise)',
+    "konfirmasi_revoke": '[role="alertdialog"]:visible:has-text("Revoke Assignment?") button:text-is("Konfirmasi")',
     "loading": '[aria-busy="true"]:visible, [role="progressbar"]:visible, .animate-spin:visible, [class~="tw:animate-spin"]:visible, [class~="tabler-icon-loader-2"]:visible',
     "modal": r'div.tw\:border\!.tw\:relative.tw\:flex.tw\:w-full.tw\:flex-col.tw\:gap-4.tw\:bg-background.tw\:p-6.tw\:pt-4.tw\:shadow-lg\!.tw\:sm\:rounded-lg:visible',
 }
@@ -357,13 +359,25 @@ def jalankan(pemulihan=False, profil=None):
                     tahap = "Memeriksa tampilan form/pengiriman"
                     print("  " + tahap, flush=True)
                     approve = form.locator(SELECTORS["approve"]).filter(visible=True)
+                    revoke = form.locator(SELECTORS["revoke"])
                     ringkasan = form.get_by_role("button", name="Ringkasan", exact=True).filter(visible=True)
-                    expect(approve.or_(ringkasan).or_(gangguan(form)).first).to_be_visible(timeout=TIMEOUT)
+                    expect(approve.or_(revoke).or_(ringkasan).or_(gangguan(form)).first).to_be_visible(timeout=TIMEOUT)
                     expect(form.locator(SELECTORS["loading"]).first).to_be_hidden(timeout=TIMEOUT)
                     if not restart and gangguan(form).is_visible():
                         bot_terdeteksi(form)
                     if restart:
                         raise Error("BOT terdeteksi; buka ulang browser.")
+                    if not approve.count() and revoke.is_visible():
+                        result = "RETRY"
+                        revoke.click()
+                        konfirmasi_revoke = form.locator(SELECTORS["konfirmasi_revoke"])
+                        expect(konfirmasi_revoke).to_be_visible(timeout=TIMEOUT)
+                        konfirmasi_revoke.click()
+                        expect(konfirmasi_revoke).to_be_hidden(timeout=TIMEOUT)
+                        expect(approve.first).to_be_visible(timeout=TIMEOUT)
+                        expect(form.locator(SELECTORS["loading"]).first).to_be_hidden(timeout=TIMEOUT)
+                        if restart:
+                            raise Error("BOT terdeteksi; buka ulang browser.")
                     if not approve.count() and ringkasan.is_visible():
                         # ponytail: Ringkasan tanpa loading menjadi penanda form siap; gunakan status server jika UI berubah.
                         result = "NO_CHANGE"
