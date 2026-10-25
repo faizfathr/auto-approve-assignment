@@ -5,6 +5,7 @@ from contextlib import suppress
 from decimal import Decimal, InvalidOperation
 from math import ceil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import monotonic
 from urllib.parse import quote, urlsplit
 from camoufox.fingerprints import from_fpgen, generate_fingerprint
@@ -200,7 +201,7 @@ def ulang_langkah(page, tahap, aksi, pulih):
 def halaman_awal(page):
     return page.url.startswith("https://fasih-sm.bps.go.id/") and urlsplit(page.url).path.rstrip("/") in ("", "/app", "/app/home", "/app/dashboard", "/app/beranda", "/app/surveys")
 
-def jalankan():
+def jalankan(pemulihan=False, profil=None):
     root = Path(__file__).resolve().parent
     cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
     path = root / cfg["excel_file"]
@@ -239,7 +240,7 @@ def jalankan():
     sheet.cell(1, catatan, "catatan")
     with path.open("r+b"):
         pass
-    profil = root / ".fasih-profile"
+    profil = profil if profil is not None else root / ".fasih-profile"
     fingerprint = identitas(profil / "fingerprint.json")
     headless = False
     print(f"[MULAI] {len(rows)} baris; headless={headless}. Membuka browser dan memuat sesi tersimpan.", flush=True)
@@ -282,13 +283,18 @@ def jalankan():
                 expect(page.locator("body")).to_be_visible(timeout=TIMEOUT)
                 if restart:
                     book.close()
-                    return 0
+                    return pemulihan
                 expect(gangguan(page)).to_be_hidden(timeout=TIMEOUT)
                 login = next((tab for tab in browser.pages if not tab.is_closed() and perlu_login(tab)), None)
                 if login is not None:
-                    print("[HENTI] Sesi tidak diterima FASIH. Cookie tersimpan dipertahankan; tidak meminta login ulang.", flush=True)
-                    book.close()
-                    return None
+                    login.bring_to_front()
+                    print("[SESI] FASIH meminta login; sesi tersimpan tidak diterima. Login ulang di browser ini.", flush=True)
+                    input("Setelah login selesai, tekan Enter untuk melanjutkan assignment yang sama... ")
+                    pemulihan = True
+                    continue
+                if not pemulihan:
+                    input("Setelah login awal selesai, tekan Enter sekali untuk mulai otomatis... ")
+                    pemulihan = True
                 tab = tab_survei(browser)
                 if tab is None:
                     page.wait_for_timeout(100)
@@ -302,7 +308,7 @@ def jalankan():
             except (Error, AssertionError, StopIteration) as error:
                 if restart:
                     book.close()
-                    return 0
+                    return pemulihan
                 if re.search(r"NS_ERROR_UNKNOWN_HOST|ERR_NAME_NOT_RESOLVED", str(error)):
                     raise
                 if page.is_closed():
@@ -344,8 +350,6 @@ def jalankan():
                     expect(page.locator("body")).to_be_visible(timeout=TIMEOUT)
                     if restart:
                         raise Error("BOT terdeteksi; buka ulang browser.")
-                    if perlu_login(page):
-                        raise Error("Sesi tidak diterima FASIH.")
                     review = page.get_by_role("button", name="Review", exact=True).filter(visible=True)
                     with page.expect_popup(timeout=TIMEOUT) as popup:
                         review.click()
@@ -354,9 +358,7 @@ def jalankan():
                     print("  " + tahap, flush=True)
                     approve = form.locator(SELECTORS["approve"]).filter(visible=True)
                     ringkasan = form.get_by_role("button", name="Ringkasan", exact=True).filter(visible=True)
-                    expect(approve.or_(ringkasan).or_(gangguan(form)).or_(form.locator('input[type="password"]:visible')).first).to_be_visible(timeout=TIMEOUT)
-                    if perlu_login(form):
-                        raise Error("Sesi tidak diterima FASIH.")
+                    expect(approve.or_(ringkasan).or_(gangguan(form)).first).to_be_visible(timeout=TIMEOUT)
                     expect(form.locator(SELECTORS["loading"]).first).to_be_hidden(timeout=TIMEOUT)
                     if not restart and gangguan(form).is_visible():
                         bot_terdeteksi(form)
@@ -383,8 +385,6 @@ def jalankan():
                         bot_terdeteksi(form)
                     if restart:
                         raise Error("BOT terdeteksi; periksa ulang assignment setelah browser dibuka lagi.")
-                    if perlu_login(form):
-                        raise Error("Sesi tidak diterima FASIH.")
                     result = "SUCCESS"
                     break
                 except (Error, AssertionError, ValueError, InvalidOperation) as error:
@@ -393,19 +393,12 @@ def jalankan():
                         simpan(book, path)
                         book.close()
                         # Return keluar dari with Camoufox agar browser ditutup penuh sebelum main membuka lagi.
-                        return number
+                        return pemulihan
                     error_text = str(error).strip()
                     if re.search(r"NS_ERROR_UNKNOWN_HOST|ERR_NAME_NOT_RESOLVED", error_text):
                         sheet.cell(number, status, "RETRY")
                         simpan(book, path)
                         raise
-                    if any(perlu_login(tab) for tab in browser.pages if not tab.is_closed()):
-                        sheet.cell(number, status, "RETRY")
-                        sheet.cell(number, catatan, "Sesi tidak diterima FASIH; cookie tersimpan dipertahankan.")
-                        simpan(book, path)
-                        book.close()
-                        print("[HENTI] Sesi tidak diterima; progres disimpan tanpa meminta login ulang.", flush=True)
-                        return None
                     if result == "RETRY" or tahap == "Memeriksa tampilan form/pengiriman":
                         result = "RETRY"
                         note = f"{tahap} belum terverifikasi | {error_text.splitlines()[0][:160]}"
@@ -446,16 +439,11 @@ def jalankan():
         book.close()
 
 def main():
-    terakhir = None
-    while True:
-        tertunda = jalankan()
-        if tertunda is None:
-            return
-        if tertunda == terakhir:
-            print("[HENTI] BOT tetap muncul setelah restart pada tahap yang sama. Progres dan sesi dipertahankan.", flush=True)
-            return
-        terakhir = tertunda
-        print("[PULIH] Membuka ulang browser dengan profil, fingerprint, dan sesi yang sama.", flush=True)
+    pemulihan = jalankan()
+    while pemulihan is not None:
+        print("[PULIH] Browser/profil baru; memulihkan sesi akun FASIH yang sama.", flush=True)
+        with TemporaryDirectory(prefix="fasih-") as profil:
+            pemulihan = jalankan(pemulihan, Path(profil))
 
 if __name__ == "__main__":
     main()

@@ -10,7 +10,7 @@
 // - set it within a user.js file in your profile.
 
 user_pref("app.update.lastUpdateTime.addon-background-update-timer", 1792834787);
-user_pref("app.update.lastUpdateTime.browser-cleanup-thumbnails", 1792899843);
+user_pref("app.update.lastUpdateTime.browser-cleanup-thumbnails", 1792905126);
 user_pref("app.update.lastUpdateTime.glean-addons-daily", 1792834787);
 user_pref("app.update.lastUpdateTime.region-update-timer", 1792834787);
 user_pref("app.update.lastUpdateTime.services-settings-poll-changes", 1792834787);
@@ -35,7 +35,7 @@ user_pref("browser.privacySegmentation.createdShortcut", true);
 user_pref("browser.proton.toolbar.version", 3);
 user_pref("browser.sessionstore.upgradeBackup.latestBuildID", "20261006021101");
 user_pref("browser.startup.couldRestoreSession.count", 2);
-user_pref("browser.startup.lastColdStartupCheck", 1792901887);
+user_pref("browser.startup.lastColdStartupCheck", 1792905098);
 user_pref("browser.termsofuse.prefMigrationCheck", true);
 user_pref("browser.theme.toolbar-theme", 0);
 user_pref("browser.uiCustomization.state", "{\"placements\":{\"widget-overflow-fixed-list\":[],\"unified-extensions-area\":[],\"nav-bar\":[\"back-button\",\"forward-button\",\"stop-reload-button\",\"customizableui-special-spring1\",\"vertical-spacer\",\"urlbar-container\",\"customizableui-special-spring2\",\"downloads-button\",\"fxa-toolbar-menu-button\",\"reset-pbm-toolbar-button\",\"unified-extensions-button\",\"new-tab-button\",\"customizableui-special-spring3\",\"alltabs-button\",\"personal-bookmarks\",\"_c3c10168-4186-445c-9c5b-63f12b8e2c87_-browser-action\",\"smartwindow-group-tabs-button\",\"ai-window-toggle\",\"ublock0_raymondhill_net-browser-action\"],\"toolbar-menubar\":[\"menubar-items\"],\"TabsToolbar\":[\"tabbrowser-tabs\"],\"vertical-tabs\":[],\"PersonalToolbar\":[]},\"seen\":[\"reset-pbm-toolbar-button\",\"smartwindow-group-tabs-button\",\"ai-window-toggle\",\"developer-button\",\"ublock0_raymondhill_net-browser-action\",\"_c3c10168-4186-445c-9c5b-63f12b8e2c87_-browser-action\"],\"dirtyAreaCache\":[\"nav-bar\",\"TabsToolbar\",\"vertical-tabs\",\"PersonalToolbar\",\"toolbar-menubar\",\"unified-extensions-area\"],\"currentVersion\":26,\"newElementCount\":3}");
@@ -115,7 +115,7 @@ user_pref("sidebar.visibility", "hide-on-close");
 user_pref("signon.storage.rust.active", true);
 user_pref("toolkit.profiles.newProfileSubmitted", true);
 user_pref("toolkit.profiles.storeID", "0222105b");
-user_pref("toolkit.startup.last_success", 1792901884);
+user_pref("toolkit.startup.last_success", 1792905095);
 user_pref("toolkit.telemetry.cachedClientID", "c0ffeec0-ffee-c0ff-eec0-ffeec0ffeec0");
 user_pref("toolkit.telemetry.cachedProfileGroupID", "decafdec-afde-cafd-ecaf-decafdecafde");
 user_pref("toolkit.telemetry.previousBuildID", "20261006021101");
