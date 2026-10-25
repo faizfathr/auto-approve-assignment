@@ -1,5 +1,4 @@
 import json
-import random
 import re
 import sys
 from contextlib import suppress
@@ -46,11 +45,16 @@ def identitas(path):
     )
     return fp
 
+def perlu_login(page):
+    return bool(re.search(r"/(?:login|sign-?in)(?:[/?.#]|$)", page.url, re.I) or page.locator('input[type="password"]:visible').count())
+
 def sesi(browser, page, path, simpan=False):
     if simpan:
+        if page.is_closed() or perlu_login(page) or gangguan(page).is_visible():
+            return
         tab = json.loads(path.read_text(encoding="utf-8"))["tab"] if path.exists() else {}
-        if not page.is_closed() and page.url.startswith("https://fasih-sm.bps.go.id/"):
-            tab = page.evaluate("() => ({...sessionStorage})")
+        if page.url.startswith("https://fasih-sm.bps.go.id/"):
+            tab = page.evaluate("() => ({...sessionStorage})") or tab
         data = {"browser": browser.storage_state(indexed_db=True), "tab": tab}
         temp = path.with_suffix(".tmp.json")
         temp.write_text(json.dumps(data), encoding="utf-8")
@@ -58,8 +62,9 @@ def sesi(browser, page, path, simpan=False):
     elif path.exists():
         data = json.loads(path.read_text(encoding="utf-8"))
         browser.set_storage_state(data["browser"])
-        page.add_init_script("if (location.origin === 'https://fasih-sm.bps.go.id' && !sessionStorage.length) "
-                             "for (const [k,v] of Object.entries(" + json.dumps(data["tab"]) + ")) sessionStorage.setItem(k,v);")
+        browser.add_init_script("if (location.origin === 'https://fasih-sm.bps.go.id') "
+            "for (const [k,v] of Object.entries(" + json.dumps(data["tab"]) + ")) "
+            "if (sessionStorage.getItem(k) === null) sessionStorage.setItem(k,v);")
 
 def sukses_kirim(page):
     return (
@@ -150,23 +155,11 @@ def posisi_stabil(page):
         sebelum = sekarang
     raise Error("Tampilan masih berubah; periksa ulang posisi halaman.")
 
-def pasang_refresh(page, pulih=None):
+def pasang_refresh(page, pulih, bot):
     pesan = gangguan(page)
     refresh = page.get_by_role("button", name="Refresh Page", exact=True).filter(visible=True)
-    def ulang():
-        print("  [BOT] Hard refresh di tab yang sama.", flush=True)
-        if pulih is not None:
-            pulih()
-        page.wait_for_timeout(1000)
-        try:
-            with page.expect_navigation(wait_until="domcontentloaded", timeout=TIMEOUT):
-                # ponytail: reload(true) khusus Firefox/Camoufox; gunakan API bypass-cache bila pindah browser.
-                page.evaluate("() => location.reload(true)")
-        except Error as error:
-            if page.is_closed() or re.search(r"NS_ERROR_UNKNOWN_HOST|ERR_NAME_NOT_RESOLVED", str(error)):
-                raise
     page.remove_locator_handler(pesan)
-    page.add_locator_handler(pesan, ulang, no_wait_after=True)
+    page.add_locator_handler(pesan, lambda: bot(page), no_wait_after=True, times=1)
     page.remove_locator_handler(refresh)
     def refresh_web():
         if refresh.evaluate_all("buttons => { const b = buttons.find(b => !b.disabled); if (!b) return false; b.click(); return true; }"):
@@ -207,15 +200,9 @@ def ulang_langkah(page, tahap, aksi, pulih):
 def halaman_awal(page):
     return page.url.startswith("https://fasih-sm.bps.go.id/") and urlsplit(page.url).path.rstrip("/") in ("", "/app", "/app/home", "/app/dashboard", "/app/beranda", "/app/surveys")
 
-def jalankan(pemulihan=False):
+def jalankan():
     root = Path(__file__).resolve().parent
     cfg = json.loads((root / "config.json").read_text(encoding="utf-8"))
-    for key in ("delay", "batch", "rest"):
-        low, high = cfg[key + "_min"], cfg[key + "_max"]
-        if type(low) not in (int, float) or type(high) not in (int, float) or not 0 <= low <= high < float("inf"):
-            raise ValueError("Rentang config tidak valid: " + key)
-    if any(type(cfg[k]) is not int or cfg[k] < 1 for k in ("batch_min", "batch_max")):
-        raise ValueError("Batch harus bilangan bulat positif")
     path = root / cfg["excel_file"]
     book = load_workbook(path)
     sheet = book[cfg["sheet_name"]]
@@ -226,6 +213,8 @@ def jalankan(pemulihan=False):
     rows = []
     for number, cells in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
         row = dict(zip(headers, cells))
+        if str(row.get("status") or "").strip().upper() in ("SUCCESS", "NO_CHANGE"):
+            continue
         try:
             if (
                 not isinstance(row["id_assignment"], str)
@@ -239,6 +228,9 @@ def jalankan(pemulihan=False):
             print(error)
             continue
         rows.append((number, row))
+    if not rows or "--cek-excel" in sys.argv:
+        book.close()
+        return None
     status = headers.index("status") + 1 if "status" in headers else sheet.max_column + 1
     sheet.cell(1, status, "status")
     keterangan = headers.index("keterangan") + 1 if "keterangan" in headers else sheet.max_column + 1
@@ -247,13 +239,19 @@ def jalankan(pemulihan=False):
     sheet.cell(1, catatan, "catatan")
     with path.open("r+b"):
         pass
-    fingerprint = identitas(root / ".fasih-profile" / "fingerprint.json")
+    profil = root / ".fasih-profile"
+    fingerprint = identitas(profil / "fingerprint.json")
     headless = False
     print(f"[MULAI] {len(rows)} baris; headless={headless}. Membuka browser dan memuat sesi tersimpan.", flush=True)
-    with Camoufox(persistent_context=True, user_data_dir=str(root / ".fasih-profile"), fingerprint=fingerprint, i_know_what_im_doing=True, headless=headless, humanize=False, os="windows", locale="id-ID", timeout=TIMEOUT) as browser:
+    with Camoufox(persistent_context=True, user_data_dir=str(profil), fingerprint=fingerprint, i_know_what_im_doing=True, headless=headless, humanize=False, os="windows", locale="id-ID", timeout=TIMEOUT) as browser:
         browser.set_default_timeout(TIMEOUT)
         browser.set_default_navigation_timeout(TIMEOUT)
         dimuat_ulang = False
+        restart = False
+        def bot_terdeteksi(tab):
+            nonlocal restart
+            restart = True
+            print("  [BOT] Menutup seluruh browser", flush=True)
         def pulih_bot():
             nonlocal dimuat_ulang
             dimuat_ulang = True
@@ -262,13 +260,13 @@ def jalankan(pemulihan=False):
                 if sum(not p.is_closed() for p in browser.pages) > 2:
                     tab.close()
                 elif not tab.is_closed():
-                    pasang_refresh(tab, pulih_bot)
+                    pasang_refresh(tab, pulih_bot, bot_terdeteksi)
             except Error:
                 if not tab.is_closed():
                     raise
         browser.on("page", tab_baru)
         for tab in browser.pages:
-            pasang_refresh(tab, pulih_bot)
+            pasang_refresh(tab, pulih_bot, bot_terdeteksi)
         page = browser.pages[0] if browser.pages else browser.new_page()
         for tab in browser.pages:
             if tab != page:
@@ -282,10 +280,15 @@ def jalankan(pemulihan=False):
                     dibuka = True
                     page.goto("https://fasih-sm.bps.go.id/app/surveys?page=0&perPage=10&layout=list", wait_until="commit")
                 expect(page.locator("body")).to_be_visible(timeout=TIMEOUT)
+                if restart:
+                    book.close()
+                    return 0
                 expect(gangguan(page)).to_be_hidden(timeout=TIMEOUT)
-                if not pemulihan:
-                    pemulihan = True
-                    input("Setelah login awal selesai, tekan Enter sekali untuk mulai otomatis... ")
+                login = next((tab for tab in browser.pages if not tab.is_closed() and perlu_login(tab)), None)
+                if login is not None:
+                    print("[HENTI] Sesi tidak diterima FASIH. Cookie tersimpan dipertahankan; tidak meminta login ulang.", flush=True)
+                    book.close()
+                    return None
                 tab = tab_survei(browser)
                 if tab is None:
                     page.wait_for_timeout(100)
@@ -297,6 +300,9 @@ def jalankan(pemulihan=False):
                 sesi(browser, page, root / ".fasih-profile" / "sesi.json", simpan=True)
                 break
             except (Error, AssertionError, StopIteration) as error:
+                if restart:
+                    book.close()
+                    return 0
                 if re.search(r"NS_ERROR_UNKNOWN_HOST|ERR_NAME_NOT_RESOLVED", str(error)):
                     raise
                 if page.is_closed():
@@ -305,7 +311,6 @@ def jalankan(pemulihan=False):
         print("[SESI] Halaman Survei terbuka. Mulai memeriksa assignment.", flush=True)
         hasil = dict.fromkeys(("SUCCESS", "NO_CHANGE", "ERROR"), 0)
         dimuat_ulang = False
-        sisa = random.randint(cfg["batch_min"], cfg["batch_max"])
         for index, (number, row) in enumerate(rows):
             mulai_baris = monotonic()
             print(f"[{index + 1}/{len(rows)}] Baris Excel {number}: {row['id_assignment']}", flush=True)
@@ -334,8 +339,13 @@ def jalankan(pemulihan=False):
                         for tab in browser.pages:
                             if tab != assignment:
                                 tab.close()
-                        pasang_refresh(page, pulih_bot)
+                        pasang_refresh(page, pulih_bot, bot_terdeteksi)
                         page.goto("https://fasih-sm.bps.go.id/app/assignment-detail/" + quote(row["id_assignment"], safe=""), wait_until="commit")
+                    expect(page.locator("body")).to_be_visible(timeout=TIMEOUT)
+                    if restart:
+                        raise Error("BOT terdeteksi; buka ulang browser.")
+                    if perlu_login(page):
+                        raise Error("Sesi tidak diterima FASIH.")
                     review = page.get_by_role("button", name="Review", exact=True).filter(visible=True)
                     with page.expect_popup(timeout=TIMEOUT) as popup:
                         review.click()
@@ -343,46 +353,63 @@ def jalankan(pemulihan=False):
                     tahap = "Memeriksa tampilan form/pengiriman"
                     print("  " + tahap, flush=True)
                     approve = form.locator(SELECTORS["approve"]).filter(visible=True)
-                    try:
-                        expect(approve).to_be_visible(timeout=TIMEOUT)
-                        print("  " + tahap + " | Tombol Approve tersedia.", flush=True)
-                        approve.first.click()
-                        konfirmasi_approve = form.locator(
-                            SELECTORS["konfirmasi_approve"]
-                        )
-                        expect(konfirmasi_approve).to_be_visible(
-                            timeout=TIMEOUT
-                        )
-                        konfirmasi_approve.click()
-                        result = "SUCCESS"
-                        sheet.cell(number, status, result)
-                        jeda = random.randint(5, 15)
-                        print(
-                            f"  [JEDA] {jeda} detik...",
-                            flush=True
-                        )
-                        break
-                    except AssertionError:
+                    ringkasan = form.get_by_role("button", name="Ringkasan", exact=True).filter(visible=True)
+                    expect(approve.or_(ringkasan).or_(gangguan(form)).or_(form.locator('input[type="password"]:visible')).first).to_be_visible(timeout=TIMEOUT)
+                    if perlu_login(form):
+                        raise Error("Sesi tidak diterima FASIH.")
+                    expect(form.locator(SELECTORS["loading"]).first).to_be_hidden(timeout=TIMEOUT)
+                    if not restart and gangguan(form).is_visible():
+                        bot_terdeteksi(form)
+                    if restart:
+                        raise Error("BOT terdeteksi; buka ulang browser.")
+                    if not approve.count() and ringkasan.is_visible():
+                        # ponytail: Ringkasan tanpa loading menjadi penanda form siap; gunakan status server jika UI berubah.
                         result = "NO_CHANGE"
-                        note = "Tidak ada tombol Approve atau assignment sudah diproses"
+                        note = "Ringkasan sudah dimuat tanpa tombol Approve"
                         print(f"  [SKIP] {note}", flush=True)
-                        result = "NO_CHANGE"
-                        pass
-                        sheet.cell(number, status, result)
-                    if index + 1 < len(rows):
-                        jeda = random.randint(5, 15)
-                        print(
-                            f"  [JEDA] {jeda} detik...",
-                            flush=True
-                        )
-                        page.wait_for_timeout(jeda * 1000)
+                        break
+                    print("  " + tahap + " | Tombol Approve tersedia.", flush=True)
+                    approve.first.click()
+                    konfirmasi_approve = form.locator(SELECTORS["konfirmasi_approve"])
+                    expect(konfirmasi_approve).to_be_visible(timeout=TIMEOUT)
+                    # Sesudah klik, timeout bukan bukti skip dan tidak boleh mengirim approve lagi.
+                    result = "RETRY"
+                    tahap = "Menunggu hasil approve"
+                    konfirmasi_approve.click()
+                    expect(konfirmasi_approve).to_be_hidden(timeout=TIMEOUT)
+                    expect(approve.first).to_be_hidden(timeout=TIMEOUT)
+                    expect(form.locator(SELECTORS["loading"]).first).to_be_hidden(timeout=TIMEOUT)
+                    if not restart and gangguan(form).is_visible():
+                        bot_terdeteksi(form)
+                    if restart:
+                        raise Error("BOT terdeteksi; periksa ulang assignment setelah browser dibuka lagi.")
+                    if perlu_login(form):
+                        raise Error("Sesi tidak diterima FASIH.")
+                    result = "SUCCESS"
+                    break
                 except (Error, AssertionError, ValueError, InvalidOperation) as error:
+                    if restart:
+                        sheet.cell(number, status, "RETRY")
+                        simpan(book, path)
+                        book.close()
+                        # Return keluar dari with Camoufox agar browser ditutup penuh sebelum main membuka lagi.
+                        return number
                     error_text = str(error).strip()
                     if re.search(r"NS_ERROR_UNKNOWN_HOST|ERR_NAME_NOT_RESOLVED", error_text):
                         sheet.cell(number, status, "RETRY")
                         simpan(book, path)
                         raise
-                    if result != "ERROR":
+                    if any(perlu_login(tab) for tab in browser.pages if not tab.is_closed()):
+                        sheet.cell(number, status, "RETRY")
+                        sheet.cell(number, catatan, "Sesi tidak diterima FASIH; cookie tersimpan dipertahankan.")
+                        simpan(book, path)
+                        book.close()
+                        print("[HENTI] Sesi tidak diterima; progres disimpan tanpa meminta login ulang.", flush=True)
+                        return None
+                    if result == "RETRY" or tahap == "Memeriksa tampilan form/pengiriman":
+                        result = "RETRY"
+                        note = f"{tahap} belum terverifikasi | {error_text.splitlines()[0][:160]}"
+                        print("  [RETRY] " + note, flush=True)
                         break
                     # if halaman_awal(page):
                     #     continue
@@ -409,5 +436,26 @@ def jalankan(pemulihan=False):
                         continue
                     print("  [TUNGGU] " + tahap + " | Posisi: " + sekarang + " | " + error_text.splitlines()[0][:160], flush=True)
                     page.wait_for_timeout(100)
+            sheet.cell(number, status, result)
+            print(f"  [{result}] {monotonic() - mulai_baris:.2f} detik", flush=True)
+            if note:
+                sheet.cell(number, catatan, note).data_type = "s"
+            simpan(book, path)
+            if result in ("SUCCESS", "NO_CHANGE"):
+                sesi(browser, form, root / ".fasih-profile" / "sesi.json", simpan=True)
+        book.close()
+
+def main():
+    terakhir = None
+    while True:
+        tertunda = jalankan()
+        if tertunda is None:
+            return
+        if tertunda == terakhir:
+            print("[HENTI] BOT tetap muncul setelah restart pada tahap yang sama. Progres dan sesi dipertahankan.", flush=True)
+            return
+        terakhir = tertunda
+        print("[PULIH] Membuka ulang browser dengan profil, fingerprint, dan sesi yang sama.", flush=True)
+
 if __name__ == "__main__":
-    jalankan()
+    main()
