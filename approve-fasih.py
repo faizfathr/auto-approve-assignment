@@ -288,9 +288,9 @@ def jalankan(pemulihan=False, profil=None):
                 login = next((tab for tab in browser.pages if not tab.is_closed() and perlu_login(tab)), None)
                 if login is not None:
                     login.bring_to_front()
-                    print("[SESI] FASIH meminta login; sesi tersimpan tidak diterima. Login ulang di browser ini.", flush=True)
-                    input("Setelah login selesai, tekan Enter untuk melanjutkan assignment yang sama... ")
-                    pemulihan = True
+                    print("[SESI] Menunggu login selesai; setelah masuk, proses lanjut otomatis tanpa Enter.", flush=True)
+                    login.wait_for_url("https://fasih-sm.bps.go.id/app/**", wait_until="commit", timeout=TIMEOUT)
+                    expect(login.locator('input[type="password"]:visible').first).to_be_hidden(timeout=TIMEOUT)
                     continue
                 if not pemulihan:
                     input("Setelah login awal selesai, tekan Enter sekali untuk mulai otomatis... ")
@@ -443,7 +443,7 @@ def main():
     while pemulihan is not None:
         print("[PULIH] Browser/profil baru; memulihkan sesi akun FASIH yang sama.", flush=True)
         with TemporaryDirectory(prefix="fasih-") as profil:
-            pemulihan = jalankan(pemulihan, Path(profil))
+            pemulihan = jalankan(True, Path(profil))
 
 if __name__ == "__main__":
     main()
